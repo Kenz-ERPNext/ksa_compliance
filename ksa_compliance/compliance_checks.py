@@ -204,6 +204,7 @@ def _perform_compliance_for_invoice_type(
     return_invoice.custom_return_reason = 'Goods returned'
     return_invoice.set_taxes()
     return_invoice.set_missing_values()
+    _log_non_document_table_rows(return_invoice)
     return_invoice.save()
     progress += progress_per_step
 
@@ -253,6 +254,24 @@ def _perform_compliance_for_invoice_type(
 def _report_progress(description: str, percent: float) -> None:
     logger.info(f'[Compliance Check] {description} ({percent}%)')
     frappe.publish_progress(title=ft('Compliance Check'), description=description, percent=percent)
+
+
+def _log_non_document_table_rows(doc: Document) -> None:
+    """Temporary diagnostic: log table fields holding something other than child Documents."""
+    problems = []
+    for df in doc.meta.get_table_fields():
+        value = doc.get(df.fieldname)
+        if value is None:
+            continue
+        if not isinstance(value, list):
+            problems.append(f'{df.fieldname} ({df.options}): value is {type(value).__name__}: {value!r}')
+            continue
+        for idx, row in enumerate(value):
+            if not isinstance(row, Document):
+                problems.append(f'{df.fieldname} ({df.options}) row {idx}: {type(row).__name__}: {row!r}')
+    if problems:
+        # Deferred so the entry survives the rollback at the end of the compliance check
+        frappe.log_error(title='Compliance table debug', message='\n'.join(problems), defer_insert=True)
 
 
 def _make_invoice(company: str, customer: str, item: str, tax_category_id: str) -> SalesInvoice:
